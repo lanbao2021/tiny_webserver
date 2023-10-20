@@ -1,5 +1,7 @@
 {
     "files.associations": {
-        "cassert": "cpp"
+        "*.py": "python",
+        "cassert": "cpp",
+        "new": "cpp"
     }
 }
