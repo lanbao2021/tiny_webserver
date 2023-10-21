@@ -135,8 +135,9 @@ int main(int argc, char *argv[])
     assert(listenfd >= 0);
 
     // SO_LINGER若有数据待发送，延迟关闭
-    struct linger tmp = {1, 0};
-    setsockopt(listenfd, SOL_SOCKET, SO_LINGER, &tmp, sizeof(tmp));
+    // 下面这两行注释掉就能让webbench测试通过，但是不注释掉的话，webbench测试不通过
+    // struct linger tmp = {1, 0};
+    // setsockopt(listenfd, SOL_SOCKET, SO_LINGER, &tmp, sizeof(tmp));
 
     int ret = 0; // 存放系统调用返回值的临时变量
 

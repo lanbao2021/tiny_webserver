@@ -814,6 +814,7 @@ bool http_conn::add_content_type()
 bool http_conn::add_linger()
 {
     return add_response("Connection:%s\r\n", (m_linger == true) ? "keep-alive" : "close");
+    //return add_response("Connection:%s\r\n", "close");
 }
 
 // 添加空行
