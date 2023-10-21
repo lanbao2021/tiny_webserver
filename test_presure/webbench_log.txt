@@ -1,0 +1,34 @@
+(base) lfc@supermicro:~/cpp_project/tiny_webserver/test_presure/webbench-1.5$ ./webbench -c 10000 -t 3 http://localhost:11555/
+Webbench - Simple Web Benchmark 1.5
+Copyright (c) Radim Kolar 1997-2004, GPL Open Source Software.
+
+Benchmarking: GET http://localhost:11555/
+10000 clients, running 3 sec.
+
+Speed=519280 pages/min, 969285 bytes/sec.
+Requests: 25964 susceed, 0 failed.
+
+
+
+
+(base) lfc@supermicro:~/cpp_project/tiny_webserver/test_presure/webbench-1.5$ ./webbench -c 50000 -t 3 http://localhost:11555/
+Webbench - Simple Web Benchmark 1.5
+Copyright (c) Radim Kolar 1997-2004, GPL Open Source Software.
+
+Benchmarking: GET http://localhost:11555/
+50000 clients, running 3 sec.
+
+Speed=5613160 pages/min, 1607013 bytes/sec.
+Requests: 43046 susceed, 237612 failed.
+
+
+
+(base) lfc@supermicro:~/cpp_project/tiny_webserver/test_presure/webbench-1.5$ ./webbench -c 10500 -t 3 http://localhost:11555/
+Webbench - Simple Web Benchmark 1.5
+Copyright (c) Radim Kolar 1997-2004, GPL Open Source Software.
+
+Benchmarking: GET http://localhost:11555/
+10500 clients, running 3 sec.
+
+Speed=518200 pages/min, 967306 bytes/sec.
+Requests: 25910 susceed, 0 failed.
