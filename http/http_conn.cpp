@@ -21,7 +21,7 @@ const char *doc_root = "/home/lfc/cpp_project/tiny_webserver/root";
 map<string, string> users; // 存放用户名和密码的map容器
 locker m_lock;             // 用来干啥的锁？
 
-// 这里为啥要用这个？
+// 这里应该是重复了，connfdET和listenfdET有一个就够了
 // #define connfdET
 #define connfdLT
 // #define listenfdET
@@ -188,21 +188,23 @@ http_conn::LINE_STATUS http_conn::parse_line()
             // 如果下一个字符是'\n'，则说明我们成功读取到一个完整的行
             else if (m_read_buf[m_checked_idx + 1] == '\n')
             {
-                m_read_buf[m_checked_idx++] = '\0'; // '\r'替换成'\0'
-                m_read_buf[m_checked_idx++] = '\0'; // '\n'替换成'\0'
-                return LINE_OK;                     // 完整读取一行
+                m_read_buf[m_checked_idx++] = '\0'; // 更新当前读取的位置的同时将'\r'替换成'\0'
+                m_read_buf[m_checked_idx++] = '\0'; // 更新当前读取的位置的同时将'\n'替换成'\0'
+
+                return LINE_OK; // 完整读取了一行
             }
-            return LINE_BAD;
+
+            return LINE_BAD; // 其余情况，直接返回错误
         }
 
-        // 如果当前字符是'\n'换行符，则也说明可能读取到一个完整的行
+        // 如果当前字符是'\n'换行符，则也说明可能读取到一个完整的行（真的有这种情况吗？）
         else if (temp == '\n')
         {
             // 前一个字符要是'\r'
             if (m_checked_idx > 1 && m_read_buf[m_checked_idx - 1] == '\r')
             {
-                m_read_buf[m_checked_idx - 1] = '\0';
-                m_read_buf[m_checked_idx++] = '\0';
+                m_read_buf[m_checked_idx - 1] = '\0'; // 更新当前读取的位置的同时将'\r'替换成'\0'
+                m_read_buf[m_checked_idx++] = '\0';   // 更新当前读取的位置的同时将'\n'替换成'\0'
                 return LINE_OK;
             }
             return LINE_BAD; // 出现语法错误，直接返回错误
@@ -227,6 +229,9 @@ bool http_conn::read_once()
 #ifdef connfdLT
 
     bytes_read = recv(m_sockfd, m_read_buf + m_read_idx, READ_BUFFER_SIZE - m_read_idx, 0);
+
+    // 我觉得这里少了一些判断，比如bytes_read == -1，bytes_read == 0等等
+
     m_read_idx += bytes_read;
 
     if (bytes_read <= 0)
@@ -239,13 +244,13 @@ bool http_conn::read_once()
 #endif
 
 #ifdef connfdET
-    while (true)
+    while (true) // 必须一次性把就绪的数据读完，因为后续不再通知此事件
     {
         bytes_read = recv(m_sockfd, m_read_buf + m_read_idx, READ_BUFFER_SIZE - m_read_idx, 0);
         if (bytes_read == -1)
         {
             if (errno == EAGAIN || errno == EWOULDBLOCK)
-                break;
+                break; // 没有就绪的数据了，退出循环
             return false;
         }
         else if (bytes_read == 0)
@@ -258,14 +263,24 @@ bool http_conn::read_once()
 #endif
 }
 
-// 解析http请求行，获得请求方法，目标url及http版本号
+//  GET /562f25980001b1b106000338.jpg HTTP/1.1
+//  Host:img.mukewang.com
+//  User-Agent:Mozilla/5.0 (Windows NT 10.0; WOW64)
+//  AppleWebKit/537.36 (KHTML, like Gecko) Chrome/51.0.2704.106 Safari/537.36
+//  Accept:image/webp,image/*,*/*;q=0.8
+//  Referer:http://www.imooc.com/
+//  Accept-Encoding:gzip, deflate, sdch
+//  Accept-Language:zh-CN,zh;q=0.8
+//  空行
+//  请求数据为空
+
+// 解析http请求行，获得请求方法、目标url、http版本号
 // 解析完成后主状态机的状态变为CHECK_STATE_HEADER
 http_conn::HTTP_CODE http_conn::parse_request_line(char *text)
 {
-    // 在HTTP报文中，请求行用来说明请求类型,要访问的资源以及所使用的HTTP版本，其中各个部分之间通过\t或空格分隔
-    // 请求行中最先含有空格 ' '和 '\t'任一字符的位置并返回，如果没有空格或\t，则报文格式有误
-    m_url = strpbrk(text, " \t");
-    if (!m_url)
+    m_url = strpbrk(text, " \t"); // m_url指向请求行中的第一个空格或\t字符
+
+    if (!m_url) // 如果请求行中没有一个空格或\t字符，则报文格式有误
     {
         return BAD_REQUEST;
     }
@@ -273,14 +288,15 @@ http_conn::HTTP_CODE http_conn::parse_request_line(char *text)
     *m_url++ = '\0'; // 将该位置改为'\0'，用于将前面数据取出
 
     char *method = text; // 取出请求方法，并通过与GET和POST比较，以确定请求方式
-    if (strcasecmp(method, "GET") == 0)
+
+    if (strcasecmp(method, "GET") == 0) // 忽略大小写比较字符串
     {
         m_method = GET;
     }
     else if (strcasecmp(method, "POST") == 0)
     {
         m_method = POST;
-        cgi = 1;
+        cgi = 1; // POST请求需要cgi
     }
     else
     {
@@ -288,35 +304,36 @@ http_conn::HTTP_CODE http_conn::parse_request_line(char *text)
     }
 
     // size_t strspn(const char *str1, const char *str2)
-    该函数返回 str1 中第一个不在字符串 str2 中出现的字符下标。
-        m_url此时跳过了第一个空格或\t字符，但不知道之后是否还有，所以调用strspn函数将m_url向后偏移，
-            即通过查找，跳过空格和\t字符，指向请求资源的第一个字符
-                m_url += strspn(m_url, " \t");
+    // 该函数返回 str1 中第一个不在字符串 str2 中出现的字符下标。
+    // m_url此时跳过了第一个空格或\t字符，但不知道之后是否还有，所以调用strspn函数将m_url向后偏移，
+    // 即通过查找，跳过空格和\t字符，指向请求资源的第一个字符
+    m_url += strspn(m_url, " \t");
 
     // 使用与前面判断「请求方式」的相同逻辑，判断HTTP版本号
     m_version = strpbrk(m_url, " \t");
     if (!m_version)
         return BAD_REQUEST;
 
-    *m_version++ = '\0'; // 将该位置改为'\0'，用于将前面数据取出
+    *m_version++ = '\0'; // 将该位置改为'\0'，前面的m_url就已经去除想要的资源路径了
 
     // 假设GET请求为GET /562f25980001b1b106000338.jpg HTTP/1.1
-    此时m_url已经取出中间部分的 / 562f25980001b1b106000338.jpg了
+    // 此时m_url已经取出中间部分的 /562f25980001b1b106000338.jpg了
 
-        m_version += strspn(m_version, " \t"); // 此时m_version已经取出HTTP/1.1了
+    m_version += strspn(m_version, " \t"); // 此时m_version已经取出HTTP/1.1了
 
     // 仅支持HTTP/1.1
     if (strcasecmp(m_version, "HTTP/1.1") != 0)
         return BAD_REQUEST;
 
-// 对请求资源前7个字符进行判断
-这里主要是有些报文的请求资源中会带有http: // ，这里需要对这种情况进行单独处理
+    // 对请求资源前7个字符进行判断
+    // 这里主要是有些报文的请求资源中会带有http: // ，这里需要对这种情况进行单独处理
     if (strncasecmp(m_url, "http://", 7) == 0)
     {
         m_url += 7;
         m_url = strchr(m_url, '/');
         // char *strchr(const char *str, int c)
-        如果在字符串 str 中找到字符 c，则函数返回指向该字符的指针，如果未找到该字符则返回 NULL。
+        // 如果在字符串 str 中找到字符 c，则函数返回指向该字符的指针，如果未找到该字符则返回 NULL。
+        // "www.lantongxue.top/562f25980001b1b106000338.jpg" -> "/562f25980001b1b106000338.jpg"
     }
 
     // 类似地，增加https情况
@@ -325,7 +342,8 @@ http_conn::HTTP_CODE http_conn::parse_request_line(char *text)
         m_url += 8;
         m_url = strchr(m_url, '/');
         // char *strchr(const char *str, int c)
-        如果在字符串 str 中找到字符 c，则函数返回指向该字符的指针，如果未找到该字符则返回 NULL。
+        // 如果在字符串 str 中找到字符 c，则函数返回指向该字符的指针，如果未找到该字符则返回 NULL。
+        // "www.lantongxue.top/562f25980001b1b106000338.jpg" -> "/562f25980001b1b106000338.jpg"
     }
 
     // 异常情况处理
@@ -336,10 +354,11 @@ http_conn::HTTP_CODE http_conn::parse_request_line(char *text)
     if (strlen(m_url) == 1)
     {
         // char *strcat(char *dest, const char *src)
-        dest-- 指向目标数组，该数组包含了一个 C 字符串，且足够容纳追加后的字符串。
-            src-- 指向要追加的字符串，该字符串不会覆盖目标字符串。
-                该函数返回一个指向最终的目标字符串 dest 的指针
-                    strcat(m_url, "judge.html");
+        // dest-- 指向目标数组，该数组包含了一个 C 字符串，且足够容纳追加后的字符串。
+        // src-- 指向要追加的字符串，该字符串不会覆盖目标字符串。
+        // 该函数返回一个指向最终的目标字符串 dest 的指针
+        strcat(m_url, "judge.html");
+        // m_url = "/judge.html"
     }
 
     // 解析完请求行后，主状态机继续分析请求头
@@ -351,57 +370,45 @@ http_conn::HTTP_CODE http_conn::parse_request_line(char *text)
 // 请求头和空行的处理函数
 http_conn::HTTP_CODE http_conn::parse_headers(char *text)
 {
-    // 请求头和空行的处理使用的同一个函数，这里通过判断当前的text首位是不是\0字符，
-    // 若是，则表示当前处理的是空行，若不是，则表示当前处理的是请求头。
-    if (text[0] == '\0')
+    if (text[0] == '\0') // 说明是空行
     {
-        // 若是空行，进而判断content-length是否为0，如果不是0，表明是POST请求，则状态转移到CHECK_STATE_CONTENT，
-        // 否则说明是GET请求，则报文解析结束。
-        if (m_content_length != 0)
+
+        if (m_content_length != 0) // 消息体不为空，说明是POST请求，仅需读取更多信息
         {
-            m_check_state = CHECK_STATE_CONTENT;
-            return NO_REQUEST;
+            m_check_state = CHECK_STATE_CONTENT; // 转移到消息体处理状态
+            return NO_REQUEST;                   // 返回NO_REQUEST，表示请求不完整，需要继续读取客户数据
         }
-        return GET_REQUEST;
+        return GET_REQUEST; // 否则说明是GET请求，则报文解析结束。
     }
 
-    // 若解析的是请求头部字段，则主要分析connection字段，content-length字段，
-    // 其他字段可以直接跳过，各位也可以根据需求继续分析。
-
-    // connection字段判断是keep-alive还是close，决定是长连接还是短连接
-    // strncasecmp判断字符串指定长度是否相等的函数，忽略大小写 
     else if (strncasecmp(text, "Connection:", 11) == 0)
     {
-
         text += 11;
         text += strspn(text, " \t"); // 跳过空格和\t字符
 
-        // strncasecmp判断字符串是否相等的函数，忽略大小写
-        if (strcasecmp(text, "keep-alive") == 0)
+        if (strcasecmp(text, "keep-alive") == 0) // strncasecmp判断字符串是否相等的函数，忽略大小写
         {
-            m_linger = true;
+            m_linger = true; // 如果是长连接，则将linger标志设置为true
         }
     }
 
-    // content-length字段，这里用于读取post请求的消息体长度
     else if (strncasecmp(text, "Content-length:", 15) == 0)
     {
         text += 15;
         text += strspn(text, " \t");
-        m_content_length = atol(text);
+        m_content_length = atol(text); // content-length字段，这里用于读取post请求的消息体长度
     }
 
-    // 解析请求头部HOST字段
     else if (strncasecmp(text, "Host:", 5) == 0)
     {
         text += 5;
         text += strspn(text, " \t");
-        m_host = text;
+        m_host = text; // 解析请求头部HOST字段
     }
 
-    // 忽略其它头部字段
     else
     {
+        // 忽略其它头部字段
         // printf("oop!unknow header: %s\n",text);
         LOG_INFO("oop!unknow header: %s", text);
         Log::get_instance()->flush();
@@ -434,9 +441,9 @@ http_conn::HTTP_CODE http_conn::process_read()
     char *text = 0;
 
     // m_check_state的默认值是CHECK_STATE_REQUESTLINE，见init()函数
-    // 所以第一次进入循环取决于(line_status = parse_line()) == LINE_OK 
+    // 所以第一次进入循环取决于(line_status = parse_line()) == LINE_OK
     while ((m_check_state == CHECK_STATE_CONTENT && line_status == LINE_OK) ||
-                                                                           ((line_status = parse_line()) == LINE_OK))
+           ((line_status = parse_line()) == LINE_OK))
     {
         text = get_line();            // 因为parse_line()中把'\r'和'\n'替换成了'\0'，所以这里得到的text就是一行内容
         m_start_line = m_checked_idx; // 重置m_start_line的位置，下一次就是下一行的起点了
@@ -658,8 +665,7 @@ void http_conn::unmap()
 }
 
 // 服务器子线程调用process_write完成响应报文，随后注册epollout事件（这个注册在process()函数中进行）。
-服务器主线程检测写事件，并调用http_conn::write函数将响应报文发送给浏览器端。 
-bool http_conn::write()
+服务器主线程检测写事件，并调用http_conn::write函数将响应报文发送给浏览器端。 bool http_conn::write()
 {
     int temp = 0;
 
